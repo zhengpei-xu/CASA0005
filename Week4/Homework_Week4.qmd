@@ -1,0 +1,91 @@
+---
+title: "Homework_Week4"
+author: "Pippin"
+format: html
+editor: visual
+---
+
+## Homework_Week 4
+
+### 1.load packages
+
+```{r}
+library(tidyverse)
+library(sf)
+library(here)
+library(janitor)
+library(stringr)
+```
+
+### 2.read and pocess data
+
+```{r}
+GiiData <- read_csv(here::here("Week4/Data",
+           "HDR25_Composite_indices_complete_time_series.csv"))%>%
+  clean_names()%>%
+  select(c(1:2,4,656,665))%>%
+  mutate(diff_10_19 = `gii_2010`-`gii_2019`)
+```
+
+```{r}
+shp <- st_read(here::here("Week4/Data/World_Countries_(Generalized)_-573431906301700955",
+                          "World_Countries_Generalized.shp"))%>%
+  clean_names()
+
+head(shp)
+```
+
+#### 2.1 use countrycode package convert iso format
+
+countrycode( list, origin = " ", destination = " ")
+
+"iso2c" "iso3c" "country.name" "continent"
+
+```{r}
+library(countrycode)
+shp_iso3 <- shp%>%
+  mutate(iso3 = iso)
+
+shp_iso3$iso3 <-  shp_iso3$iso3%>%
+  countrycode::countrycode(.,origin = "iso2c",destination = "iso3c")
+```
+
+### 3.join data
+
+```{r}
+joint_data <- shp_iso3%>%
+  left_join(.,GiiData,
+            by = c("iso3"))%>%
+  select(c(1,5,8,9,10))%>%
+  mutate(across(where(is.numeric),~round(.x,2)))
+```
+
+### 4.plot
+
+```{r}
+# plot
+library(tmap)
+library(tmaptools)
+
+joint_data <- joint_data%>%
+  st_transform(.,4326)
+
+tmap_mode("view")
+
+tm_shape(joint_data)+
+  tm_polygons(fill = "diff_10_19",
+              fill.scale = tm_scale_intervals(values="-brewer.RdYlBu",
+                                              style="jenks"),
+              fill_alpha=0.4,
+              fill.legend = tm_legend(title = "the index of inequality", 
+                                      size = 0.6))+
+  tm_basemap(server = "OpenStreetMap") +
+  tm_compass(type = "arrow", position = c("left", "bottom")) + 
+  tm_scalebar(position = c("left", "bottom"))+
+  tm_title("The changes of inenquality index from 2010 to 2019", 
+            size = 2,
+            position = c("center", "top"))
+```
+
+```         
+```

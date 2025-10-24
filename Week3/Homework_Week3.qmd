@@ -1,0 +1,102 @@
+---
+title: "Homework_Week3"
+author: "pippin"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+# Homework Week3
+
+analysing the estimate changes of temperature with the data from WorldClim
+
+```{r}
+library(sf)
+# read the layers info before reading the data
+st_layers(here::here("Week3//Data","gadm41_CHN.gpkg"))
+```
+
+```{r}
+# get the geometry of the china boundary
+chnGeo <- st_read(here::here("Week3//Data","gadm41_CHN.gpkg"),
+                  layer = "ADM_ADM_0")%>%
+  # get the geometry
+  st_geometry()
+```
+
+```{r}
+# read rast data
+library(terra)
+ssp1 <- terra::rast(here::here("Week3/Data","wc2.1_2.5m_tmax_BCC-CSM2-MR_ssp126_2021-2040.tif"))
+
+ssp1_mean <- mean(ssp1)
+
+ssp5 <- terra::rast(here::here("Week3/Data","wc2.1_2.5m_tmax_BCC-CSM2-MR_ssp585_2021-2040.tif"))
+```
+
+```{r}
+# read city coordinates data
+cities <- st_read(here::here("Week3/Data/World_Cities","World_Cities.shp"))
+```
+
+```{r}
+# select chinese cities rows
+
+library(stringr)
+library(janitor)
+chncities <- cities%>%
+  janitor::clean_names()%>%
+  dplyr::filter(stringr::str_detect(cntry_name,"China"))
+
+head(chncities)
+```
+
+```{r}
+# get the chinese temp data from temp data worldwhile
+chn_temp_ssp1 <- ssp1%>%
+  terra::crop(.,chnGeo)
+
+chn_temp_ssp5 <- ssp5%>%
+  terra::crop(.,chnGeo)
+```
+
+```{r}
+# subtract the two temp data
+diff_chn_tmx <- chn_temp_ssp5 - chn_temp_ssp1
+```
+
+```{r}
+# rename the diff temp data
+month <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+names(diff_chn_tmx) <- month
+
+diff_chn_cities_temp <- terra::extract(diff_chn_tmx,chncities)
+
+diff_chn_cities_temp
+```
+
+```{r}
+library(tidyverse)
+# make a new index column for the chncities to join to the diff temp data
+chncities_id <- chncities%>%
+  mutate(id = 1:n(),.before = 'fid')
+
+chn_cities_tmxtemp_diff <- chncities_id%>%
+  left_join(.,diff_chn_cities_temp,
+            by = c('id' = 'ID'))
+
+chn_cities_tmxtemp_diff <- chn_cities_tmxtemp_diff%>%
+  select(c(1,4,16:27))%>%
+  #######################
+  sf::st_drop_geometry()%>%
+  as_tibble()
+  
+```
+
+```{r}
+##########then plot###############
+```
