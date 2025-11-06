@@ -5,23 +5,56 @@ format: html
 editor: visual
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+# Practical Week5: Map Making
 
 ```{r}
-1 + 1
+library(sf)
+library(tidyverse)
+library(here)
+
+# read OSM data
+OSM <- st_read(here::here('Week5/Data/greater-london-251104-free.shp/',
+                          'gis_osm_pois_free_1.shp'))%>%
+  # convert to british geo format
+  st_transform(,.27700)%>%
+  filter(`fclass` == 'hotel')
 ```
 
-You can add options to executable code like this
+### Read Airbnb data
 
 ```{r}
-#| echo: false
-2 * 2
+Airbnb <- read_csv(here::here('Week5/Data',
+                              'listings.csv'))%>%
+  # merge longitude and latitude into coordinates
+  st_as_sf(., coords = c('longitude','latitude'),
+           crs = 4326)%>%
+  st_transform(.,27700)%>%
+  # select entire places which also available for 365 days
+  filter(`room_type` == 'Entire home/apt' &
+           `availability_365` == 365)
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+### Load world cities
+
+```{r}
+Worldcities <- st_read('Data/World_Cities/World_Cities.shp')%>%
+  st_transform(.,27700)
+
+# filter based on the key cities
+Worldcities2 <- Worldcities%>%
+  filter(`CNTRY_NAME` == 'United Kingdom' & 
+           Worldcities$CITY_NAME == 'Birmingham'|
+           Worldcities$CITY_NAME == 'London'|
+           Worldcities$CITY_NAME == 'Edinburgh')
+```
+
+### Load UK outline
+
+```{r}
+UK_outline <- st_read('Data/gadm41_GBR_shp/gadm41_GBR_0.shp')%>%
+  st_transform(.,27700)
+```
+
+```{r}
+
+```
