@@ -16,7 +16,7 @@ library(here)
 OSM <- st_read(here::here('Week5/Data/greater-london-251104-free.shp/',
                           'gis_osm_pois_free_1.shp'))%>%
   # convert to british geo format
-  st_transform(,.27700)%>%
+  st_transform(.,27700)%>%
   filter(`fclass` == 'hotel')
 ```
 
@@ -32,6 +32,11 @@ Airbnb <- read_csv(here::here('Week5/Data',
   # select entire places which also available for 365 days
   filter(`room_type` == 'Entire home/apt' &
            `availability_365` == 365)
+```
+
+```{r}
+Londonborough <- st_read('Data/statistical-gis-boundaries-london/statistical-gis-boundaries-london/ESRI/London_Borough_Excluding_MHW.shp')%>%
+  st_transform(.,27700)
 ```
 
 ### Load world cities
@@ -55,6 +60,302 @@ UK_outline <- st_read('Data/gadm41_GBR_shp/gadm41_GBR_0.shp')%>%
   st_transform(.,27700)
 ```
 
-```{r}
+## Join data
 
+```{r}
+# join spatial data with "st_join" (defaulting to a left join)
+Hotels <- st_join(Londonborough, OSM)
+Airbnbs <- st_join(Londonborough, Airbnb)
+
+head(Hotels)
+```
+
+```{r}
+Hotels_sum <- Hotels%>%
+  group_by(.,GSS_CODE,NAME)%>%
+  summarise(`Accomodation count` =n())
+
+Airbnb_sum <- Airbnbs%>%
+  group_by(.,GSS_CODE,NAME)%>%
+  summarise(`Accomodation count` =n())
+```
+
+```{r}
+Hotels%>%
+  filter(NAME == 'Barking and Dagenham')
+```
+
+```{r}
+Hotels_example <- st_contains(Londonborough, OSM)
+
+Hotels_example
+```
+
+```{r}
+Accomodation_contained <- Londonborough%>%
+  mutate(hotels_n = lengths(st_contains(., OSM)))%>%
+  mutate(airbnb_n = lengths(st_contains(., Airbnbs)))
+```
+
+## Mapping (tmap)
+
+```{r}
+remotes::install_github("r-tmap/tmap")
+```
+
+```{r}
+library(tmap)
+
+tmap_mode("plot")
+```
+
+```{r}
+tm1 <- tm_shape(Accomodation_contained) +
+  # set the map layer
+  # try changing this to tm_symbols()
+  tm_polygons("hotels_n",
+              col = "black", lwd = 0.5, lty = "dashed")
+
+tm1
+```
+
+```{r}
+tm_no_map_layer <- tm_shape(Accomodation_contained) +
+  tm_borders(col = "darkblue")
+
+tm_no_map_layer
+```
+
+```{r}
+tm1 <- tm_shape(Accomodation_contained) +
+  tm_polygons(fill = "hotels_n",
+              col = "black",
+              lwd = 0.5,
+              lty = "dashed",
+              fill.chart = tm_chart_violin(),
+              
+              fill.scale = tm_scale_intervals(
+                values = "brewer.bu_pu",
+                n = 5,
+                style = "jenks"
+              ))
+
+tm1
+```
+
+```{r}
+library(colorblindcheck)
+cols4all::c4a_gui()
+```
+
+```{r}
+stats <- Accomodation_contained%>%
+  st_drop_geometry()%>%
+  dplyr::select(hotels_n, airbnb_n)%>%
+  summarise(across(everything(),list(
+    min = min,
+    max = max,
+    mean = mean,
+    median = median,
+    sd = sd
+  )))
+```
+
+```{r}
+library(classInt)
+```
+
+```{r}
+# get jenks breaks for 5 classes
+breaks <- Accomodation_contained%>%
+  st_drop_geometry()%>%
+  pull(airbnb_n)%>%
+  classIntervals(., n = 5, style = "jenks")
+
+breaks$brks
+```
+
+```{r}
+tmap_mode("plot")
+tm1 <- tm_shape(Accomodation_contained) +
+  tm_polygons(
+    fill = c('hotels_n','airbnb_n'),
+    fill.scale = tm_scale_intervals(values = "brewer.blues", breaks = breaks$brks),
+    # set the legend
+    fill.legend = tm_legend(title = "Accomodation Count",
+                            title.size = 0.85,
+                            size = 0.8,
+                            # plot outside of the main map
+                            #explained below
+                            position = tm_pos_out("right",
+                                                  "center",pos.v = "center")),
+    # all facets share the same legend
+    fill.free = FALSE) +
+  # make two rows for the facets
+  tm_facets(nrow = 2)
+
+tm1
+```
+
+```{r}
+tm2 <- tm1 +
+  tm_layout(panel.labels = c("Hotels","Airbnb"),
+            panel.show = TRUE
+            #panel.label.bg.color = "transparent"
+            ) +
+  tm_compass(type = "arrow",
+             size = 1.8,
+             position = tm_pos_out(
+               "right","center",
+               pos.h = -0.05,
+               pos.v = 0.72
+             )) +
+  tm_scalebar(text.size = 0.7,
+              width = 10,
+              breaks = c(10,20,30),
+              position = tm_pos_out("right","center",
+                                    pos.h = 0.075,
+                                    pos.v = 0.72)) +
+  tm_credits("(c) OpenStreetMap contrbutors and Airbnb",
+             size =  0.6,
+             position = tm_pos_out("center",
+                                   "bottom",
+                                   pos.v = 1.5,
+                                   pos.h = -0.02))
+
+tm2
+```
+
+```{r}
+file_path <- "Plot/1_facet.png"
+if (file.exists(file_path)) file.remove(file_path)
+tmap_save(tm2,file_path,width = 8,height = 6,units = "in",dpi = 300)
+```
+
+#### go to [bbox finder](http://bboxfinder.com/#0.000000,0.000000,0.000000,0.000000) get a coordinate data of the rectangle
+
+```{r}
+qtm(UK_outline)
+```
+
+```{r}
+newbb <- c(xmin = -296000, ymin = 5408,
+           xmax = 655696, ymax = 1000000)
+
+UK_outlinecrop <- UK_outline$geometry%>%
+  st_crop(.,newbb)
+```
+
+```{r}
+tm3 <- tm_shape(UK_outlinecrop) +
+  tm_polygons(col = "darkslategray1") +
+  tm_layout(frame = FALSE) +
+  tm_shape(Worldcities2) +
+  # add cities points
+  tm_symbols(shape = 20,
+             fill = "orange",
+             # outline colour
+             col = "black",
+             size = 0.8)  +
+  #add the cities labels, x and y move the label around the point
+  tm_text("CITY_NAME", xmod = -1, ymod = -0.5)
+
+tm3
+```
+
+```{r}
+# st_bbox gives the bounding x and y coordinates
+# get a bbox of c(xmin, ymin, xmax, ymax)
+Londonbb <- st_bbox(Accomodation_contained,
+                    crs = st_crs(Accomodation_contained))%>%
+  # st_as_sfc converts the coordinates to an sf object
+  st_as_sfc()
+
+tm4 <- tm3 +
+  tm_shape(Londonbb) +
+  tm_borders(col = "red4", lwd = 3) +
+  tm_layout(frame = FALSE,
+            bg.color = "transparent")
+
+tm4
+```
+
+## Arrange maps
+
+1.  tmap_arrange(): tmap_arrange(tm1, tm2)
+2.  tm_inset(): can't be used with tmap project, can use tm_grob() instead
+
+```{r}
+inset <- tmap_grob(tm4, asp = 1.1)
+
+final_map <- tm2 +
+  tm_inset(inset, 
+           position = tm_pos_out("right","center",pos.v = "top"))
+
+final_map
+
+
+file_path2 <- "Plot/2_facet.png"
+if (file.exists(file_path2)) file.remove(file_path2)
+tmap_save(final_map,file_path2, width = 8, height = 6, units = "in", dpi = 300)
+```
+
+```{r}
+library(ggplot2)
+
+accom_long <- Accomodation_contained%>%
+  # drop geometry for plotting
+  st_drop_geometry()%>%
+  pivot_longer(
+    cols = c(hotels_n, airbnb_n),
+    names_to = "accom_type",
+    values_to = "count"
+  )
+```
+
+```{r}
+violin <- accom_long%>%
+  ggplot(aes(x = accom_type,
+             y = count,
+             fill = accom_type)) +
+  geom_violin(trim = FALSE,
+              color = "grey30",
+              alpha = 0.8) +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    fill = "black"
+  ) +
+  # change the labels from the column names to..
+  scale_x_discrete(labels = c("hotels_n" = "Hotels",
+                              "airbnb_n" = "Airbnbs")) +
+  theme_minimal(base_size = 13) +
+  theme(
+    # no legend
+    legend.position = "none",
+    # all text to black
+    text = element_text(color = "black"),                # set all text to black
+    axis.text = element_text(color = "black"),           # axis tick labels  
+    axis.title = element_text(color = "black"),          # axis titles(if used)
+    plot.title = element_text(color = "black")           # title (if used)
+  )
+
+violin
+```
+
+```{r}
+library(grid)
+
+# Open PNG device
+png("Plot/3_facet.png", width = 8, height = 6, units="in", res = 300)
+
+tm2
+print(tm4, vp = viewport(x=0.68, y= 0.25, width = 0.3, height = 0.35))
+print(violin, vp = viewport(x=0.67, y= 0.83, width = 0.25, height = 0.35))
+
+
+# Close device
+dev.off()
 ```
