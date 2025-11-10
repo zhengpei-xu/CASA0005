@@ -213,7 +213,7 @@ __marimo__/
 .quarto
 <<<<<<< HEAD
 
-
+gi
 *.tif
 *.tiff
 
@@ -225,5 +225,9 @@ __marimo__/
 *.geofeather
 *.parquet
 *.geoparquet
+
+
+*.RDataTmp
+*.RData
 data/
 >>>>>>> 00531bad6b4c8498d2720c02a8dcf819889074be
