@@ -63,6 +63,7 @@ joint_data <- shp_iso3%>%
 ### 4.plot
 
 ```{r}
+# Pippin's original mapping code
 # plot
 library(tmap)
 library(tmaptools)
@@ -87,5 +88,55 @@ tm_shape(joint_data)+
             position = c("center", "top"))
 ```
 
-```         
+```{r}
+library(tmap)
+library(tmaptools)
+
+tmap_mode("plot")
+```
+
+```{r}
+# find colours first :)
+library(colorblindcheck)
+cols4all::c4a_gui()
+```
+
+```{r}
+giidiffmap <- tm_shape(joint_data) + 
+  tm_polygons(fill ="diff_10_19",
+              col = "black", 
+              lwd =0.5,
+              lty="dashed",
+              fill.legend = tm_legend(title="Differences",
+                              title.size=0.85,
+                              size=0.1,
+                              position=tm_pos_out("right", 
+                                                  "center",
+                                                  pos.v = "center")),
+              fill.chart = tm_chart_violin(size=0,
+                                           position=tm_pos_out("right", 
+                                                               "center",
+                                                               pos.v = "bottom")),
+              fill.scale = tm_scale_intervals(
+                values="brewer.pastel1",
+                n=5,
+                style="jenks"))
+
+giidiffmap
+```
+
+```{r}
+giidiffmap2 <- giidiffmap+
+  tm_layout(panel.labels="Gender Inequality Index Difference Bewteen 2010-2019",
+            panel.show = TRUE,
+            panel.label.bg.color = "transparent"
+            )+
+  tm_credits("(c) United Nations",
+             size=0.5,
+             position = tm_pos_out("center",
+                                   "bottom",
+                                   pos.v = 1.5,
+                                   pos.h=-0.02))
+
+giidiffmap2
 ```
