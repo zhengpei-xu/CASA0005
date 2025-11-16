@@ -5,26 +5,384 @@ date: "2025-11-11"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# Practical Week 6: Detecting spatial patterns
+
+```{r}
+# load packages first (spatstat)
+library(spatstat)
+library(here)
+library(sp)
+library(tmap)
+library(sf)
+library(tmaptools)
 ```
 
-## R Markdown
+First, get the London Borough Boundaries
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+LondonBoroughs <- st_read(here::here("Week1","practical-1","statistical-gis-boundaries-london", "ESRI", "London_Borough_Excluding_MHW.shp"))
 ```
 
-## Including Plots
+Get the london borough map
 
-You can also embed plots, for example:
+```{r}
+library(stringr)
+BoroughMap <- LondonBoroughs %>%
+  dplyr::filter(str_detect(GSS_CODE, "^E09"))%>%
+  st_transform(., 27700)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+qtm(BoroughMap)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Now get the location of all Blue Plaques in the City direct from the web
+
+```{r}
+BluePlaques <- st_read("https://s3.eu-west-2.amazonaws.com/openplaques/open-plaques-london-2018-04-08.geojson")%>%
+  st_transform(.,27700)
+```
+
+```         
+plot the blue plaques in the city
+```
+
+```{r}
+tmap_mode("plot")
+
+tm_shape(BoroughMap) +
+  tm_polygons(fill_alpha = 0.3) +
+  tm_shape(BluePlaques) +
+  tm_dots(fill = "blue", size=0.1)
+```
+
+```         
+remove duplicated points in blueplaques
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+
+BluePlaques <- BluePlaques%>%
+  distinct()
+```
+
+```{r}
+BluePlaquesSub <- BluePlaques[BoroughMap,]
+
+#plot the blue plaques in the city
+tmap_mode("plot")
+
+#check to see that they've been removed
+tm_shape(BoroughMap) +
+  tm_polygons(fill_alpha = 0.5)+
+tm_shape(BluePlaquesSub) +
+  tm_dots(fill = "blue", size=0.1)
+```
+
+```{r}
+# add sparse=false to get the complete matrix.
+# this is the same as select by location in QGIS
+# filter from dplyr is the same as select by attribute 
+intersect_indices <-st_intersects(BoroughMap, BluePlaques)
+```
+
+```{r}
+#extract the borough
+
+# select by attribute
+Harrow <- BoroughMap %>%
+  filter(., NAME=="Harrow")
+
+#Check to see that the correct borough has been pulled out
+tm_shape(Harrow) +
+  tm_polygons(col = NA, fill_alpha = 0.5)
+```
+
+```{r}
+# clip the data to our single borough
+# [Harrow,] means to extract the rows in the df
+BluePlaquesSub <- BluePlaques[Harrow,]
+
+
+
+#check that it's worked
+tm_shape(Harrow) +
+  tm_polygons(fill_alpha = 0.5)+
+tm_shape(BluePlaquesSub) +
+  tm_dots(fill = "blue", size=0.1)
+```
+
+```{r}
+# now set a window as the borough boundary
+window <- as.owin(Harrow)
+plot(window)
+```
+
+[`spatstat`](https://spatstat.org/) has its own set of spatial objects that it works with (one of the delights of R is that different packages are written by different people and many have developed their own data types) — it does not work directly with the SpatialPolygonsDataFrames, SpatialPointsDataFrames or `sf` objects that we are used to. For point pattern analysis, we need to create a point pattern (ppp) object.
+
+```{r}
+# create a sp object first
+BluePlaquesSub<- BluePlaquesSub %>%
+  as(., 'Spatial')
+# then create a ppp object(give the coordinates values)
+BluePlaquesSub.ppp <- ppp(x=BluePlaquesSub@coords[,1],
+                          y=BluePlaquesSub@coords[,2],
+                          window=window)
+```
+
+```{r}
+BluePlaquesSub.ppp%>%
+  plot(.,pch=16,cex=0.5, 
+       main="Blue Plaques Harrow")
+```
+
+## **6.6** Point pattern analysis
+
+### **6.6.1** Kernel Density Estimation
+
+One way to summarise your point data is to plot the density of your points under a window called a ‘Kernel’. The size and shape of the Kernel affects the density pattern produced, but it is very easy to produce a Kernel Density Estimation (KDE) map from a ppp object using the `density()` function.
+
+```{r}
+BluePlaquesSub.ppp%>%
+  density(., sigma = 500)%>%
+  plot(.,main = "KDE of Blue Plaques Harrow(sigma = 500)")
+```
+
+The sigma value sets the diameter of the Kernel (in the units your map is in — in this case, as we are in British National Grid the units are in **metres**). Try experimenting with different values of sigma to see how that affects the density estimate.
+
+```{r}
+BluePlaquesSub.ppp%>%
+  density(., sigma = 2000)%>%
+  plot(.,main = "KDE of Blue Plaques Harrow(sigma = 2000)")
+```
+
+### **6.6.2** Quadrat Analysis
+
+So as you saw in the lecture, we are interesting in knowing whether the distribution of points in our study area differs from **‘complete spatial randomness’** — CSR. That’s different from a CRS! Be careful!
+
+The most basic test of CSR is a quadrat analysis. We can carry out a simple quadrat analysis on our data using the `quadrat count` function in `spatstat`.
+
+*Note, I wouldn’t **recommend doing a quadrat analysis in any real piece of analysis you conduct**, but it is useful for starting to understand the Poisson distribution…*
+
+```{r}
+# First plot the points
+plot(BluePlaquesSub.ppp,
+     pch=16,
+     cex=0.5, 
+     main="Blue Plaques in Harrow")
+
+# now count the points in that fall in a 6 x 6
+# grid overlaid across the windowBluePlaquesSub.ppp2<-BluePlaquesSub.ppp %>%
+BluePlaquesSub.ppp %>%
+  quadratcount(.,nx = 6, ny = 6)
+```
+
+```{r}
+Qcount_1 <- BluePlaquesSub.ppp %>%
+  quadratcount(.,nx = 6, ny = 6) %>%
+  as.data.frame()
+```
+
+`{)%>%}     plot(., add=T, col="red")`
+
+In our case here, want to know whether or not there is any kind of spatial patterning associated with the Blue Plaques in areas of London. If you recall from the lecture, this means comparing our observed distribution of points with a statistically likely (Complete Spatial Random) distibution, based on the Poisson distribution.
+
+Using the same `quadratcount()` function again (for the same sized grid) we can save the results into a table:
+
+```{r}
+# run the quadrat count
+Qcount <- BluePlaquesSub.ppp %>%
+  quadratcount(.,nx = 6, ny = 6) %>%
+  as.data.frame() %>%
+  dplyr::count(Var1=Freq)%>%
+  dplyr::rename(Freqquadratcount=n)
+```
+
+```{r}
+Qcount %>% 
+  summarise_all(class)
+```
+
+```{r}
+ # calculating the occurence with possion distribution formula
+sums <- Qcount %>%
+  mutate(total = Var1*Freqquadratcount)%>%
+  summarise(across(everything(), sum))%>%
+  dplyr::select(-Var1)
+
+lambda<- Qcount%>%
+  # calculate lambda
+  mutate(total = Var1 * Freqquadratcount)%>%
+  dplyr::summarise(across(everything(), sum)) %>%
+  mutate(lambda=total/Freqquadratcount) %>%
+  dplyr::select(lambda)%>%
+  pull(lambda)
+
+QCountTable <- Qcount %>%
+  mutate(Pr=((lambda^Var1)*exp(-lambda))/factorial(Var1))%>%
+  #now calculate the expected counts based on our total number of plaques
+  #and save them to the table
+  mutate(Expected= (round(Pr * sums$Freqquadratcount, 0)))
+```
+
+```{r}
+# Compare the frequency distributions of the observed and expected point patterns
+plot(c(1,5),c(0,14), type="n",
+xlab="Number of Blue Plaques (Red=Observed,Blue=Expected)", 
+     ylab="Frequency of Occurances")
+points(QCountTable$Freqquadratcount, 
+       col="Red", 
+       type="o", 
+       lwd=3)
+points(QCountTable$Expected, col="Blue", 
+       type="o", 
+       lwd=3)
+```
+
+use the `quadrat.test()` function, built into `spatstat`. This uses a Chi Squared test to compare the observed and expected frequencies for each quadrant (rather than for quadrant bins, as we have just computed above).
+
+A Chi-Squared test determines if there is an association between two categorical variables. The higher the Chi-Squared value, the greater the difference.
+
+If the p-value of our Chi-Squared test is \< 0.05, then we can reject a null hypothesis that says “there is no pattern - i.e. complete spatial randomness - in our data” (think of a null-hypothesis as the opposite of a hypothesis that says our data exhibit a pattern). What we need to look for is a value for p \> 0.05. If our p-value is \> 0.05 then this indicates that we have CSR and there is no pattern in our points. If it is \< 0.05, this indicates that we do have clustering in our points.
+
+```{r}
+teststats <- quadrat.test(BluePlaquesSub.ppp, nx = 6, ny = 6)
+```
+
+```{r}
+plot(BluePlaquesSub.ppp,pch=16,cex=0.5, main="Blue Plaques in Harrow")
+plot(teststats, add=T, col = "red")
+```
+
+### **6.6.4** Ripley’s K
+
+One way of getting around the limitations of quadrat analysis is to compare the observed distribution of points with the Poisson random model for a whole range of different distance radii. This is what Ripley’s K function computes.
+
+We can conduct a Ripley’s K test on our data very simply with the package using the function.`spatstatkest()`
+
+```{r}
+K <- BluePlaquesSub.ppp %>%
+  Kest(., correction="border") %>%
+  plot()
+```
+
+## **6.7** Density-based spatial clustering of applications with noise: DBSCAN
+
+Quadrat and Ripley’s K analysis are useful exploratory techniques for telling us if we have spatial clusters present in our point data, but they are not able to tell us **WHERE** in our area of interest the clusters are occurring. To discover this we need to use alternative techniques. One popular technique for discovering clusters in space (be this physical space or variable space) is DBSCAN. For the complete overview of the DBSCAN algorithm, read the original paper by [Ester et al. (1996)](http://www.aaai.org/Papers/KDD/1996/KDD96-037.pdf) or consult the [wikipedia page](https://en.wikipedia.org/wiki/DBSCAN)
+
+```{r}
+library(fpc)
+```
+
+```{r}
+# first check the coordinate reference system of the Harrow spatial polygon:
+st_geometry(BoroughMap)
+```
+
+DBSCAN requires you to input two parameters: 1. ***Epsilon*** - this is the radius within which the algorithm with search for clusters 2. ***MinPts*** - this is the minimum number of points that should be considered a cluster
+
+Based on the results of the Ripley’s K analysis earlier, we can see that we are getting clustering up to a radius of around 1200m, with the largest bulge in the graph at around 700m. Therefore, 700m is probably a good place to start and we will begin by searching for clusters of at least 4 points…
+
+```{r}
+# first extract the points from the spatial points data frame
+BluePlaquesSubPoints <- BluePlaquesSub %>%
+  coordinates(.)%>%
+  as_data_frame()
+
+# run the dbscan analysis
+db <- BluePlaquesSubPoints %>%
+  fpc::dbscan(.,eps = 700, MinPts = 4)
+
+### db not containing the cluster info, so two data needed to plot here ###
+plot(db, BluePlaquesSubPoints, main = "DBSCAN Output", frame = F)
+### "add=T": add to existing plot ###
+plot(BoroughMap$geometry, add=T)
+```
+
+also use from the package to find a suitable eps value based on the ‘knee’ in the plot…`kNNdistplot()dbscan`
+
+```{r}
+# used to find suitable eps value based on the knee in plot
+# k is no of nearest neighbours used, use min points
+library(dbscan)
+
+BluePlaquesSubPoints%>%
+  dbscan::kNNdistplot(.,k=4)
+```
+
+This plot shows for each point the average distance to the k neighbours, which are then plotted in ascending order. The knee is where this value (of distance to neighbours) increases. See [this article from Data Novia](https://www.datanovia.com/en/lessons/dbscan-density-based-clustering-essentials/) for more information on this
+
+So the DBSCAN analysis shows that for these values of eps and MinPts there are three clusters in the area I am analysing. Try varying eps and MinPts to see what difference it makes to the output.
+
+Now of course the plot above is a little basic and doesn’t look very aesthetically pleasing. As this is R and R is brilliant, we can always produce a much nicer plot by extracting the useful information from the DBSCAN output and use to produce a much cooler map…`ggplot2`
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+db
+```
+
+```{r}
+db$cluster
+```
+
+adding this cluster membership info back into our dataframe
+
+```{r}
+BluePlaquesSubPoints<- BluePlaquesSubPoints %>%
+  mutate(dbcluster=db$cluster)
+```
+
+```{r}
+# convert the data frame to sf
+BluePlaquesSubPoints_sf <- st_as_sf(BluePlaquesSubPoints, 
+                                    coords = c("coords.x1", "coords.x2"), 
+                                    crs = 27700)
+
+# make the convex hulls around the cluster points
+chull_polygons <- BluePlaquesSubPoints_sf %>%
+  # remove any points not in a cluster
+  filter(dbcluster>0)%>%
+  group_by(dbcluster) %>%
+  summarise(geometry = st_combine(geometry)) %>%  # combine points
+  mutate(geometry = st_convex_hull(geometry)) %>% # convex hull
+  st_as_sf()
+```
+
+Now create a object from our data.`ggplot2`
+
+In past iterations we used to get a base map we would:
+
+-   set a bounding box
+
+-   Extract the coordinates of the bounding box
+
+-   Pull an OSM base map from the OpenStreetMap package.
+
+However, now we can do this all from within the function from the ggspatial package`annotation_map_tile()`
+
+Here:
+
+-   `fill` is for the interior colour (e.g. polygons)
+
+-   `color` is for borders and points
+
+```{r}
+library(ggspatial)
+```
+
+```{r}
+# Create the map
+ggplot() +
+  annotation_map_tile(zoom = 13) +
+  geom_sf(data = BluePlaquesSubPoints_sf, aes(color=dbcluster), size = 3)+
+  geom_sf(data = chull_polygons, aes(fill = dbcluster), 
+          alpha = 0.8, 
+          # remove polygon borders
+          color = NA, 
+          show.legend = FALSE) +
+
+  theme_bw()
+```
