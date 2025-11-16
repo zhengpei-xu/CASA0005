@@ -67,7 +67,7 @@ BluePlaques <- BluePlaques%>%
 ```
 
 ```{r}
-BluePlaquesSub <- BluePlaques[BoroughMap,]
+BluePlaquesSub <- BluePlaques[BoroughMap,,op = st_intersects]
 
 #plot the blue plaques in the city
 tmap_mode("plot")
@@ -174,7 +174,8 @@ plot(BluePlaquesSub.ppp,
 # now count the points in that fall in a 6 x 6
 # grid overlaid across the windowBluePlaquesSub.ppp2<-BluePlaquesSub.ppp %>%
 BluePlaquesSub.ppp %>%
-  quadratcount(.,nx = 6, ny = 6)
+  quadratcount(.,nx = 6, ny = 6)%>%
+  plot(., add=T, col="red")
 ```
 
 ```{r}
