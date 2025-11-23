@@ -12,8 +12,8 @@ output: html_document
 library(spatstat)
 library(here)
 library(sp)
-library(tmap)
 library(sf)
+library(tmap)
 library(tmaptools)
 ```
 
